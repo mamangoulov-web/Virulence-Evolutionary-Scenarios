@@ -582,6 +582,12 @@ plot_PIP_multihost(p_multi_asym, ess_asym)
 ## forcing S1=S2 should pull the ESS noticeably; if it comes from d1 vs d2
 ## appearing directly in each host's removal rate in the invasion-fitness
 ## matrix (independent of S), forcing S equal should barely move it.
+##
+## Uses f = 1 (not p_multi_asym's f = 0.5) so this isolates the pure d1-vs-d2
+## effect Javad asked about: with f = 0.5 the spillover discount alone drives
+## S1*/S2* toward 1/f = 2 regardless of d1, d2, which swamps the much smaller
+## effect being tested here and is already explored on its own in the
+## spillover-discount sweep above.
 multihost_invasion_fitness_forced <- function(alpha_m, Sbar, p) {
   multihost_invasion_fitness(alpha_m, Sbar, Sbar, p)
 }
@@ -597,9 +603,10 @@ find_ESS_multihost_forced <- function(p, alpha_range = c(1e-3, 5), n = 300) {
   grid_root(function(a) multihost_selection_gradient_forced(a, p), alpha_range[1], alpha_range[2], n)
 }
 
+p_multi_puredasym <- p_multi_asym; p_multi_puredasym$f <- 1
 d2_seq <- seq(0.12, 0.50, by = 0.02)
 sweep_forced <- do.call(rbind, lapply(d2_seq, function(d2val) {
-  pp <- p_multi_asym; pp$d2 <- d2val
+  pp <- p_multi_puredasym; pp$d2 <- d2val
   ess_nat <- find_ESS_multihost(pp)
   eq_nat  <- multihost_equilibrium(ess_nat, pp)
   ess_frc <- find_ESS_multihost_forced(pp)
@@ -608,8 +615,8 @@ sweep_forced <- do.call(rbind, lapply(d2_seq, function(d2val) {
              ess_natural = ess_nat, ess_forced = ess_frc, diff = ess_nat - ess_frc)
 }))
 
-cat(sprintf("\nForced-equal-S* check (d1 fixed at %.2f, d2 sweeping %.2f to %.2f):\n",
-            p_multi_asym$d1, min(d2_seq), max(d2_seq)))
+cat(sprintf("\nForced-equal-S* check (f=1, d1 fixed at %.2f, d2 sweeping %.2f to %.2f):\n",
+            p_multi_puredasym$d1, min(d2_seq), max(d2_seq)))
 print(sweep_forced, row.names = FALSE, digits = 4)
 cat(sprintf("Max |natural - forced| ESS difference across the sweep: %.5f\n", max(abs(sweep_forced$diff))))
 cat("The natural S1*/S2* ratio stays close to 1 across the whole sweep, because\n")
@@ -631,8 +638,8 @@ print(
   ggplot(sweep_forced_long, aes(d2, alpha_star, color = case, linetype = case)) +
     geom_point(size = 2) + geom_line() +
     labs(title = "Forcing S1 = S2 barely shifts the ESS compromise",
-         subtitle = sprintf("d1 fixed at %.2f -- environmental pooling already equalizes S* on its own",
-                             p_multi_asym$d1),
+         subtitle = sprintf("f=1, d1 fixed at %.2f -- environmental pooling already equalizes S* on its own",
+                             p_multi_puredasym$d1),
          x = expression(d[2]), y = expression(alpha^"*"), color = NULL, linetype = NULL) +
     theme_minimal()
 )
