@@ -1,0 +1,8 @@
+# R session/history artifacts
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+
+# generated plots from sourcing the script
+Rplots.pdf

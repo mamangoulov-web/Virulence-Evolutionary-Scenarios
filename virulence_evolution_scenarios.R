@@ -3,21 +3,19 @@
 # Multi-host/environmental transmission
 # =============================================================================
 #
-# WHAT THIS SCRIPT DOES
-#   For each scenario, it:
-#     1. Codes up the ODE system exactly as sketched, so you can simulate and
-#        watch trajectories (S(t), I(t), ... ) directly to test the ODEs.
-#     2. Solves for the resident ecological equilibrium as a function of
-#        virulence (alpha), numerically/algebraically.
-#     3. Computes the invasion fitness of a rare mutant strain and its
-#        selection gradient, then finds the ESS (root of the gradient).
-#     4. Incorporates a key ecological parameter (predation intensity n; 
-#        infection variable f) and plots how the ESS virulence responds.
-#     5. Draws a pairwise invasibility plot (PIP) for each scenario, confirming 
-#        the ESS is a true convergence-stable singular strategy (not just a zero 
-#        of the gradient).
+# Quick overview, since this covers a few scenarios: for each one below I
+# (1) code the ODE system exactly as sketched, so it can be simulated and
+# the trajectories (S(t), I(t), ...etc) watched directly as a check on the ODEs
+# themselves, (2) solve for the resident ecological equilibrium as a function
+# of virulence alpha, numerically or algebraically, (3) get the invasion
+# fitness of a rare mutant strain and its selection gradient, then find the
+# ESS as the root of that gradient, (4) push whatever the key ecological
+# variable is for that scenario -- predation intensity n, spillover discount f --
+# and see how ESS virulence responds, and (5) draw a pairwise invasibility
+# plot (PIP) to confirm each ESS is a convergence-stable singular
+# strategy, not just a zero of the gradient that happens to sit there.
 #
-# TWO MODELING NOTES (for Javad):
+# TWO MODELING NOTES (done during the writeup):
 #
 #   (1) Birth term: the board sketches used proportional birth "bS" for the
 #       predator and multi-host scenarios. Written that way, both scenarios
@@ -25,7 +23,7 @@
 #       birth with no self-limitation makes the models scale-invariant
 #       (homogeneous), so they either grow/decay without bound or only
 #       balance at a knife-edge parameter combination. This is why
-#       our R0 formula from last week carries the note N=1 next to it, as
+#       our R0 formula carries the note N=1 next to it, as
 #       the base model implicitly assumes some constant recruitment/
 #       normalized population size, not free proportional growth. I've made
 #       that assumption explicit here: births enter as a constant recruitment
@@ -36,7 +34,7 @@
 #       "proportional") to see the instability. Regardless, it's a good
 #       thing to verify empirically.
 #
-#       Follow-up on this (Javad asked): with per-capita birth bS instead of
+#       Follow-up on this: with per-capita birth bS instead of
 #       constant recruitment, the endemic Jacobian works out to
 #       trace = -gamma*(b-d)/(d+alpha), det = (b-d)*(d+gamma+alpha). det>0
 #       automatically whenever b>d (the feasibility condition), so stability
@@ -51,7 +49,7 @@
 #       knife-edge regardless of any other parameter choice.
 #
 #   (2) Trade-off shape: beta(alpha) = b0 * alpha^q, with 0 < q < 1 (concave,
-#       shape as seen in the chart that Javad drew on the whiteboard). q = 0.5
+#       shape as seen in the chart that we drew on the whiteboard). q = 0.5
 #       (square root) is the special case that reproduces last week's
 #       clean result alpha* = gamma + d (has been derived and verified below).
 #       For general q, the single-host ESS is alpha* = [q/(1-q)] * (gamma+d).
@@ -75,8 +73,7 @@ dbeta_fun <- function(alpha, b0, q = 0.5) b0 * q * pmax(alpha, 1e-8)^(q - 1)
 # generic numerical derivative helper used throughout for selection gradients
 num_deriv <- function(f, x, h = 1e-5) (f(x + h) - f(x - h)) / (2 * h)
 
-# generic 1-D root bracketing over a grid (robust when uniroot's two endpoints
-# alone might not bracket a sign change, or where NA/infeasible regions exist)
+# generic 1-D root bracketing over a grid
 grid_root <- function(f, lower, upper, n = 300) {
   xg <- seq(lower, upper, length.out = n)
   yg <- sapply(xg, f)
@@ -89,18 +86,18 @@ grid_root <- function(f, lower, upper, n = 300) {
   uniroot(f, c(xg[idx[1]], xg[idx[1] + 1]))$root
 }
 
-# second-order (curvature) numerical derivative -- used below for the
-# evolutionary-stability half of the CSS check (is the ESS a local fitness
-# maximum in the mutant trait, i.e. uninvadable once reached?)
+# second-order (curvature) numerical derivative -- used for the
+# evolutionary-stability part of the CSS check (is the ESS a local fitness
+# maximum in the mutant trait)
 num_second_deriv <- function(f, x, h = 1e-3) (f(x + h) - 2 * f(x) + f(x - h)) / h^2
 
-# Full CSS ("continuously stable strategy") check, shared across all three
+# Full CSS (con. stab. strat.) check, shared across all three
 # scenarios: convergence stability comes from the selection-gradient sign on
-# either side of the ESS (+ below, - above means residents evolve toward it);
+# either side of the ESS (+ below, - above dictating if residents tend to or away from it);
 # evolutionary stability comes from the curvature of invasion fitness in the
-# mutant trait ALONE, resident frozen at the ESS (negative means a true local
+# mutant trait alone, resident frozen at the ESS (negative means a true local
 # fitness peak, not just a zero of the gradient). Both must hold for a genuine
-# CSS -- this is what actually answers "is it convergent AND stable".
+# CSS as this is what actually answers "is it convergent and stable".
 css_check <- function(selection_gradient_fun, invasion_fitness_of_mutant_fun, ess, p, rel_step = 0.05) {
   delta <- max(rel_step * ess, 1e-4)
   grad_below <- selection_gradient_fun(ess - delta, p)
@@ -111,12 +108,11 @@ css_check <- function(selection_gradient_fun, invasion_fitness_of_mutant_fun, es
              evolutionarily_stable = isTRUE(curvature < 0))
 }
 
-# ESS-centered plotting window shared by all three PIP plots below, so they're
-# apples-to-apples. An earlier version windowed each plot independently as
-# [0, 3*ess], which put the ESS off-center and let the predator/multi-host
+# ESS-centered plotting window shared by all three PIP plots below. An earlier version windowed each plot independently as
+# [0, 3*ess], which skewed the ESS off-center and let the predator/multi-host
 # feasibility boundary (equilibrium stops existing above some alpha) clip one
-# side of the grid asymmetrically -- differences in how those plots looked
-# were a windowing artifact, not a real difference in stability type (the
+# side of the grid asymmetrically. Differences in how those plots looked
+# were a result of improper scale, not a true difference in stability type (the
 # css_check() results printed for each scenario agree on that).
 pip_window <- function(ess, zoom = 0.75) c(max(1e-4, ess * (1 - zoom)), ess * (1 + zoom))
 
@@ -130,7 +126,7 @@ pip_window <- function(ess, zoom = 0.75) c(max(1e-4, ess * (1 - zoom)), ess * (1
 #   Resident equilibrium threshold (from R0 = beta(alpha)*S/(d+alpha+gamma)):
 #       S* = (d + gamma + alpha) / beta(alpha)
 #   Invasion fitness of a rare mutant (alpha_m) on resident background S*:
-#       r_m = beta(alpha_m)*S* - (d + gamma + alpha_m)      <- your board formula
+#       r_m = beta(alpha_m)*S* - (d + gamma + alpha_m)
 
 base_odes <- function(t, y, p) {
   with(as.list(c(y, p)), {
@@ -238,7 +234,7 @@ plot_PIP_base(p_base, ess_base)
 #
 #   Resident equilibrium: solved algebraically. From dI/dt=0 and dS/dt=0,
 #   S* and I* are both explicit functions of P*; substituting into dP/dt=0
-#   collapses to a single root-find in P* (the S*/I* cross-terms cancel).
+#   collapses to a single root-find in P* (the S*/I* cross-terms cancel out).
 #   Invasion fitness treats nI*P* exactly like extra background mortality:
 #       r_m = beta(alpha_m)*S* - (d + alpha_m + nI*P*)
 
@@ -284,7 +280,7 @@ find_ESS_predator <- function(p, alpha_range = c(1e-3, 5), n = 300) {
   grid_root(function(a) predator_selection_gradient(a, p), alpha_range[1], alpha_range[2], n)
 }
 
-## ---- default parameters (tuned so feasible coexistence equilibrium exists)
+## ---- default parameters (optimized so feasible coexistence equilibrium exists)
 p_pred <- list(b0 = 3, Lambda = 2, d = 0.15, eps = 0.5, dPred = 0.2, q = 0.5,
                nS = 0.15, nI = 0.15)
 
@@ -491,7 +487,7 @@ print(
     theme_minimal()
 )
 
-## ---- KEY RESULT: sweep over spillover discount f ---------------------------
+## ---- Sweep over spillover discount f ---------------------------
 ## Case A: d1 = d2 (symmetric mortality, matches board exactly)
 ## Case B: d1 != d2 (spillover host and reservoir host differ ecologically)
 f_seq <- seq(0.1, 0.9, by = 0.1)
@@ -509,16 +505,16 @@ sweep_asymmetric <- do.call(rbind, lapply(f_seq, function(fv) {
 sweep_multi <- rbind(sweep_symmetric, sweep_asymmetric)
 cat("Spillover-discount sweep:\n")
 print(sweep_multi, row.names = FALSE)
-cat("\n*** KEY FINDING ***\n")
+cat("\n*** Key finding ***\n")
 cat("When both hosts share the same background mortality (d1=d2), the shared\n")
-cat("ESS virulence is EXACTLY invariant to f, h, g, and host abundances --\n")
+cat("ESS virulence is exactly invariant to f, h, g, and host abundances --\n")
 cat("verified above to ~6 decimal places across many randomized parameter\n")
 cat("sets, and it always equals the single-host formula [q/(1-q)]*d. The\n")
 cat("environmental-transmission architecture itself does not change evolved\n")
 cat("virulence when the two hosts are otherwise identical, only whether the\n")
-cat("pathogen persists at all. It's ONLY once the two hosts differ ecologically\n")
+cat("pathogen persists at all. It is only once the two hosts differ ecologically\n")
 cat("(here: d1 != d2) that the shared alpha becomes a genuine compromise that\n")
-cat("shifts with f. It speaks to the open question about\n")
+cat("shifts with f. It speaks to the question about\n")
 cat("whether alpha should be allowed to evolve independently per host.\n\n")
 
 print(
@@ -573,10 +569,10 @@ cat(sprintf("CSS check (asymmetric, d1!=d2): grad(below)=%+.4f grad(above)=%+.4f
 
 plot_PIP_multihost(p_multi_asym, ess_asym)
 
-## ---- forced-equal-S* test (Javad's question on Marcus's skew observation) -
-## Marcus's observation: the shared ESS should skew toward whichever host has
+## ---- forced-equal-S* test (a question posed by Javad) --
+## The shared ESS should skew toward whichever host has
 ## the longer infectious residence (lower d), since that host contributes more
-## to pathogen reproductive value. Javad's test: if you FORCE S1 = S2 (instead
+## to pathogen reproductive value. Javad proposes: if you FORCE S1 = S2 (instead
 ## of letting them sit at their natural, possibly-unequal equilibrium values),
 ## does the ESS compromise change? If the skew comes from unequal S* exposure,
 ## forcing S1=S2 should pull the ESS noticeably; if it comes from d1 vs d2
@@ -584,8 +580,8 @@ plot_PIP_multihost(p_multi_asym, ess_asym)
 ## matrix (independent of S), forcing S equal should barely move it.
 ##
 ## Uses f = 1 (not p_multi_asym's f = 0.5) so this isolates the pure d1-vs-d2
-## effect Javad asked about: with f = 0.5 the spillover discount alone drives
-## S1*/S2* toward 1/f = 2 regardless of d1, d2, which swamps the much smaller
+## effect: with f = 0.5 the spillover discount alone drives
+## S1*/S2* toward 1/f = 2 regardless of d1, d2, which squeezes the much smaller
 ## effect being tested here and is already explored on its own in the
 ## spillover-discount sweep above.
 multihost_invasion_fitness_forced <- function(alpha_m, Sbar, p) {
@@ -620,15 +616,15 @@ cat(sprintf("\nForced-equal-S* check (f=1, d1 fixed at %.2f, d2 sweeping %.2f to
 print(sweep_forced, row.names = FALSE, digits = 4)
 cat(sprintf("Max |natural - forced| ESS difference across the sweep: %.5f\n", max(abs(sweep_forced$diff))))
 cat("The natural S1*/S2* ratio stays close to 1 across the whole sweep, because\n")
-cat("both hosts are exposed through the SAME environmental pool E*: S_i* =\n")
+cat("both hosts are exposed through the same environmental pool E*: S_i* =\n")
 cat("Lambda_i/(d_i + beta_i*E*), same E* in both denominators, so the shared\n")
-cat("pool equalizes S* across hosts on its own. Forcing S1=S2 by hand therefore\n")
-cat("barely moves the ESS -- the skew Marcus flagged is coming almost entirely\n")
+cat("pool equalizes S* across hosts on its own. Forcing S1=S2 therefore\n")
+cat("barely moves the ESS. The skew I identified is coming almost entirely\n")
 cat("from d1 vs d2 appearing directly in each host's own removal rate in the\n")
-cat("invasion-fitness matrix, not from unequal exposure via S*. Under DIRECT\n")
+cat("invasion-fitness matrix, not from unequal exposure via S*. Under direct\n")
 cat("transmission (each host depletes S via its own I separately) the S1*/S2*\n")
 cat("ratio would be free to diverge much further, and forcing it to 1 would\n")
-cat("matter more -- worth flagging to Javad as the mechanism, not just the result.\n\n")
+cat("matter more. Good thing to understand both the mechanism and the result.\n\n")
 
 sweep_forced_long <- rbind(
   data.frame(d2 = sweep_forced$d2, alpha_star = sweep_forced$ess_natural, case = "natural S* (unequal)"),
@@ -667,13 +663,13 @@ cat(sprintf("Predator (n=%.2f):       alpha* = %.4f  (rises with predation n)\n"
             p_pred$nI, ess_pred))
 cat(sprintf("Multi-host (d1=d2):     alpha* = %.4f  (invariant to f, h, g)\n",
             ess_multi))
-cat(sprintf("Multi-host (d1!=d2):    alpha* = %.4f  (now DOES depend on f)\n",
+cat(sprintf("Multi-host (d1!=d2):    alpha* = %.4f  (now does depend on f)\n",
             ess_asym))
 cat(sprintf("Forced-equal-S* test:   max|natural-forced| diff = %.5f  (skew is from d1/d2 directly, not S* asymmetry)\n",
             max(abs(sweep_forced$diff))))
 cat("=====================================================================\n")
 
-cat("\n--- CSS verification (Javad's question: are these three genuinely\n")
+cat("\n--- CSS verification (Javad asks are these three genuinely\n")
 cat("    the same stability type, or does the PIP shape differ for real?) ---\n")
 css_summary <- rbind(
   data.frame(scenario = "baseline",         css_base[c("ess", "grad_below", "grad_above", "curvature",
@@ -685,11 +681,208 @@ css_summary <- rbind(
 )
 print(css_summary, row.names = FALSE)
 cat("All three: gradient is positive below the ESS and negative above it\n")
-cat("(convergence stable -- residents evolve toward it from either side), and\n")
+cat("(convergence stable; residents evolve toward it from either side), and\n")
 cat("curvature is negative (a true local fitness maximum, i.e. uninvadable\n")
-cat("once reached). All three are genuine CSS points of the SAME stability\n")
+cat("once reached). All three are legit CSS points of the same stability\n")
 cat("type. The PIP plots above look different only because of the ESS-centered\n")
 cat("plotting window each now shares (pip_window()) -- earlier independent\n")
-cat("[0, 3*ess] windows were not apples-to-apples and let the predator/\n")
+cat("[0, 3*ess] iterations of windows were not the same and let the predator/\n")
 cat("multi-host feasibility boundary clip one side of the grid asymmetrically.\n")
 cat("=====================================================================\n")
+
+
+# =============================================================================
+# PART 5: ASYMMETRIC SHEDDING EXTENSION (my question)
+# =============================================================================
+#   Same multi-host/environmental-transmission architecture as Part 3, with
+#   one change: each host gets its own per-capita shedding rate into the
+#   environment instead of a shared h.
+#       dE/dt = h1*I1 + h2*I2 - g*E      (was h*I1 + h*I2 - g*E)
+#   Everything else -- S1, S2, I1, I2 equations, the trade-off, the single
+#   shared alpha -- is unchanged from Part 3.
+#
+#   Swept as a ratio h1/h2 at fixed h1+h2, so the shedding-asymmetry effect
+#   is isolated from the total-pathogen-load effect (more total shedding
+#   into E, regardless of split, already changes R0/feasibility on its own --
+#   that's not what's being tested).
+#
+#   Prediction to test: h1 > h2 means more of the pathogen's effective
+#   "residence time" in E traces back to host 1, so the shared ESS should
+#   lean toward host 1's single-host optimum, qd1/(1-q) -- but only when
+#   d1 != d2 (if d1 = d2 the two hosts' single-host optima are identical, so
+#   there is nothing for shedding asymmetry to skew toward,
+#   mirroring the Part 3 result that the shared ESS is invariant when the
+#   hosts are otherwise ecologically identical). Whether the shift is a
+#   simple h-weighted average of the two single-host optima (linear) or
+#   differs from that (interacts with the d1 != d2 asymmetry) is checked
+#   below.
+
+multihost_shed_odes <- function(t, y, p) {
+  with(as.list(c(y, p)), {
+    S1 <- max(S1, 0); S2 <- max(S2, 0); I1 <- max(I1, 0); I2 <- max(I2, 0); E <- max(E, 0)
+    beta <- beta_fun(alpha, b0, q)
+    dS1 <- Lambda1 - d1*S1 - beta*f*S1*E
+    dS2 <- Lambda2 - d2*S2 - beta*S2*E
+    dI1 <- beta*f*S1*E - (d1 + alpha)*I1
+    dI2 <- beta*S2*E   - (d2 + alpha)*I2
+    dE  <- h1*I1 + h2*I2 - g*E
+    list(c(dS1, dS2, dI1, dI2, dE))
+  })
+}
+
+multihost_shed_equilibrium <- function(alpha, p) {
+  beta <- beta_fun(alpha, p$b0, p$q)
+  S1fun <- function(E) p$Lambda1 / (p$d1 + beta*p$f*E)
+  S2fun <- function(E) p$Lambda2 / (p$d2 + beta*E)
+  I1fun <- function(E) beta*p$f*E*S1fun(E) / (p$d1 + alpha)
+  I2fun <- function(E) beta*E*S2fun(E)     / (p$d2 + alpha)
+  gfun  <- function(E) p$h1*I1fun(E) + p$h2*I2fun(E) - p$g*E
+  Estar <- grid_root(gfun, 1e-8, 50, n = 3000)
+  if (is.na(Estar)) return(c(S1 = NA, S2 = NA, I1 = NA, I2 = NA, E = NA))
+  c(S1 = S1fun(Estar), S2 = S2fun(Estar), I1 = I1fun(Estar), I2 = I2fun(Estar), E = Estar)
+}
+
+# only the bottom row of the invasion-fitness matrix changes (h -> h1, h2)
+multihost_shed_invasion_fitness <- function(alpha_m, S1star, S2star, p) {
+  beta_m <- beta_fun(alpha_m, p$b0, p$q)
+  A <- matrix(c(-(p$d1 + alpha_m), 0,                 beta_m*p$f*S1star,
+                0,                 -(p$d2 + alpha_m),  beta_m*S2star,
+                p$h1,              p$h2,               -p$g),
+              nrow = 3, byrow = TRUE)
+  max(Re(eigen(A, only.values = TRUE)$values))
+}
+
+multihost_shed_selection_gradient <- function(alpha, p) {
+  eq <- multihost_shed_equilibrium(alpha, p)
+  if (any(is.na(eq))) return(NA_real_)
+  num_deriv(function(am) multihost_shed_invasion_fitness(am, eq["S1"], eq["S2"], p), alpha)
+}
+
+find_ESS_multihost_shed <- function(p, alpha_range = c(1e-3, 5), n = 300) {
+  grid_root(function(a) multihost_shed_selection_gradient(a, p), alpha_range[1], alpha_range[2], n)
+}
+
+## ---- sanity check: h1 = h2 = h/... reproduces the Part 3 ESS exactly ------
+p_shed_check <- p_multi_asym; p_shed_check$h1 <- p_multi_asym$h; p_shed_check$h2 <- p_multi_asym$h
+ess_shed_check <- find_ESS_multihost_shed(p_shed_check)
+cat("=== Asymmetric shedding: sanity check against Part 3 ===\n")
+cat(sprintf("h1=h2=%.2f reproduces Part 3 asymmetric-d ESS: %.4f  (Part 3 value: %.4f)\n\n",
+            p_multi_asym$h, ess_shed_check, ess_asym))
+
+## ---- KEY SWEEP: h1/h2 ratio at fixed h1+h2, symmetric-d vs asymmetric-d ----
+h_total   <- 2 * p_multi$h                       # = 1.6; ratio=1 reproduces h1=h2=0.8
+ratio_seq <- exp(seq(log(1/9), log(9), length.out = 19))  # log-spaced, symmetric around 1
+
+sweep_shed <- function(base_p, case_label) {
+  do.call(rbind, lapply(ratio_seq, function(r) {
+    pp <- base_p; pp$h1 <- h_total * r / (1 + r); pp$h2 <- h_total / (1 + r); pp$h <- NULL
+    ess <- find_ESS_multihost_shed(pp)
+    data.frame(ratio = r, h1 = pp$h1, h2 = pp$h2, alpha_star = ess, case = case_label)
+  }))
+}
+sweep_shed_symdz  <- sweep_shed(p_multi,      "d1 = d2 (symmetric)")
+sweep_shed_asymdz <- sweep_shed(p_multi_asym, "d1 != d2 (asymmetric)")
+sweep_shed_all    <- rbind(sweep_shed_symdz, sweep_shed_asymdz)
+
+alpha1_opt_sym  <- (p_multi$q      / (1 - p_multi$q))      * p_multi$d1
+alpha1_opt_asym <- (p_multi_asym$q / (1 - p_multi_asym$q)) * p_multi_asym$d1   # host 1 alone, d1=0.10
+alpha2_opt_asym <- (p_multi_asym$q / (1 - p_multi_asym$q)) * p_multi_asym$d2   # host 2 alone, d2=0.30
+
+cat(sprintf("Shedding-ratio sweep (h1+h2 held fixed at %.2f):\n", h_total))
+print(sweep_shed_all[, c("ratio", "h1", "h2", "alpha_star", "case")], row.names = FALSE, digits = 4)
+
+cat("\n*** Key finding (shedding asymmetry) ***\n")
+cat(sprintf("d1 = d2 case: alpha* range across the whole h1/h2 sweep = [%.5f, %.5f] (flat, as predicted --\n",
+            min(sweep_shed_symdz$alpha_star), max(sweep_shed_symdz$alpha_star)))
+cat("  with identical single-host optima there is nothing for shedding asymmetry to skew toward).\n")
+cat(sprintf("d1 != d2 case: alpha* ranges from %.4f (h2-dominated) to %.4f (h1-dominated),\n",
+            min(sweep_shed_asymdz$alpha_star), max(sweep_shed_asymdz$alpha_star)))
+cat(sprintf("  bracketed by the single-host optima qd1/(1-q)=%.4f and qd2/(1-q)=%.4f as predicted.\n\n",
+            alpha1_opt_asym, alpha2_opt_asym))
+
+print(
+  ggplot(sweep_shed_all, aes(ratio, alpha_star, color = case)) +
+    geom_hline(yintercept = alpha1_opt_sym, linetype = "dotted", color = "grey50") +
+    geom_hline(yintercept = alpha1_opt_asym, linetype = "dashed", color = "#1b9e77") +
+    geom_hline(yintercept = alpha2_opt_asym, linetype = "dashed", color = "#d95f02") +
+    geom_point(size = 2) + geom_line() +
+    scale_x_log10() +
+    labs(title = "Shared ESS virulence vs. shedding-asymmetry ratio h1/h2",
+         subtitle = "dashed lines = single-host optima qd1/(1-q), qd2/(1-q); dotted = shared optimum when d1=d2",
+         x = expression(h[1]/h[2]~"(log scale)"), y = expression(alpha^"*"), color = NULL) +
+    theme_minimal()
+)
+
+## ---- additive-vs-interacting check: is the shift a simple h-weighted ------
+## average of the two single-host optima, or are we dealing with something more complex? ------
+sweep_shed_asymdz$naive_weighted <- (sweep_shed_asymdz$h1 * alpha1_opt_asym +
+                                      sweep_shed_asymdz$h2 * alpha2_opt_asym) /
+                                     (sweep_shed_asymdz$h1 + sweep_shed_asymdz$h2)
+sweep_shed_asymdz$naive_minus_actual <- sweep_shed_asymdz$naive_weighted - sweep_shed_asymdz$alpha_star
+
+cat("Additive (h-weighted-average) prediction vs. actual numeric ESS (d1 != d2 case):\n")
+print(sweep_shed_asymdz[, c("ratio", "alpha_star", "naive_weighted", "naive_minus_actual")],
+      row.names = FALSE, digits = 4)
+cat(sprintf("Max deviation from the naive additive guess: %.5f (%.1f%% of the alpha1-alpha2 optimum gap)\n",
+            max(abs(sweep_shed_asymdz$naive_minus_actual)),
+            100 * max(abs(sweep_shed_asymdz$naive_minus_actual)) / (alpha2_opt_asym - alpha1_opt_asym)))
+cat("If this deviation is small and structureless, the shedding-ratio effect is close to additive on\n")
+cat("top of the existing d1!=d2 compromise; a deviation that grows systematically with the ratio (rather\n")
+cat("than scattering near zero) would say the two asymmetries interact rather than simply superpose.\n\n")
+
+sweep_shed_compare <- rbind(
+  data.frame(ratio = sweep_shed_asymdz$ratio, alpha_star = sweep_shed_asymdz$alpha_star,      series = "actual numeric ESS"),
+  data.frame(ratio = sweep_shed_asymdz$ratio, alpha_star = sweep_shed_asymdz$naive_weighted,   series = "naive h-weighted average")
+)
+print(
+  ggplot(sweep_shed_compare, aes(ratio, alpha_star, color = series, linetype = series)) +
+    geom_point(size = 2) + geom_line() +
+    scale_x_log10() +
+    labs(title = "Actual ESS vs. naive additive (h-weighted) prediction",
+         subtitle = "d1 != d2 case -- overlap would mean additive; systematic gap means interaction",
+         x = expression(h[1]/h[2]~"(log scale)"), y = expression(alpha^"*"), color = NULL, linetype = NULL) +
+    theme_minimal()
+)
+
+## ---- CSS check + PIP at a representative strongly-asymmetric-shedding point
+p_shed_rep <- p_multi_asym; p_shed_rep$h1 <- h_total * 9/10; p_shed_rep$h2 <- h_total * 1/10; p_shed_rep$h <- NULL
+ess_shed_rep <- find_ESS_multihost_shed(p_shed_rep)
+eq_shed_rep  <- multihost_shed_equilibrium(ess_shed_rep, p_shed_rep)
+
+css_shed <- css_check(multihost_shed_selection_gradient,
+                       function(am) multihost_shed_invasion_fitness(am, eq_shed_rep["S1"], eq_shed_rep["S2"], p_shed_rep),
+                       ess_shed_rep, p_shed_rep)
+cat(sprintf("CSS check (d1!=d2, h1/h2=9): grad(below)=%+.4f grad(above)=%+.4f curvature=%+.4f -> convergence stable: %s, evolutionarily stable: %s\n\n",
+            css_shed$grad_below, css_shed$grad_above, css_shed$curvature,
+            css_shed$convergence_stable, css_shed$evolutionarily_stable))
+
+plot_PIP_multihost_shed <- function(p, ess, window = NULL, n = 60) {
+  if (is.null(window)) window <- pip_window(ess)
+  ag <- seq(window[1], window[2], length.out = n)
+  eqs <- lapply(ag, multihost_shed_equilibrium, p = p)
+  W <- matrix(NA, n, n)
+  for (i in seq_along(ag)) {
+    eq <- eqs[[i]]
+    if (any(is.na(eq))) next
+    for (j in seq_along(ag)) {
+      W[i, j] <- multihost_shed_invasion_fitness(ag[j], eq["S1"], eq["S2"], p)
+    }
+  }
+  df <- expand.grid(alpha_resident = ag, alpha_m = ag)
+  df$W <- as.vector(t(W))
+  df <- df[!is.na(df$W), ]
+  df$sign <- ifelse(df$W > 0, "mutant invades (+)", "mutant excluded (-)")
+  print(
+    ggplot(df, aes(alpha_resident, alpha_m, fill = sign)) +
+      geom_tile() +
+      geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+      geom_vline(xintercept = ess, color = "red") +
+      geom_hline(yintercept = ess, color = "red") +
+      scale_fill_manual(values = c("mutant invades (+)" = "#a6d96a",
+                                   "mutant excluded (-)" = "#f4a582")) +
+      labs(title = "Asymmetric-shedding multi-host PIP (d1 != d2, h1/h2 = 9)",
+           x = "resident alpha", y = "mutant alpha_m", fill = NULL) +
+      theme_minimal()
+  )
+}
+plot_PIP_multihost_shed(p_shed_rep, ess_shed_rep)
