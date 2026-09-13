@@ -844,6 +844,56 @@ print(
     theme_minimal()
 )
 
+## ---- So what is the right average? I wanted to check out the harmonic mean of the shared ESS to confirm that it is indeed the harmonic mean --
+## For the single-host model, the ESS condition collapses to
+## beta'(alpha*)/beta(alpha*) = 1/(d+gamma+alpha*). The question for the shared
+## multi-host ESS: does it obey the same kind of condition, but with the
+## removal rate replaced by a weighted harmonic mean of (d1+alpha*) and
+## (d2+alpha*)?
+##     beta'(alpha*)/beta(alpha*) = w1/(d1+alpha*) + w2/(d2+alpha*),  w1+w2=1
+## Working this out from the actual selection gradient (left/right
+## eigenvectors of the resident (I1,I2,E) growth matrix at the ESS) shows it
+## holds once w_i is each host's share of total shedding flux into the
+## environment, h_i*I_i*, not shedding rate h_i alone. This is the
+## correct average, unlike the naive h-weighted one just above.
+harmonic_weights <- function(alpha, p) {
+  eq <- multihost_shed_equilibrium(alpha, p)
+  flux1 <- p$h1 * eq["I1"]; flux2 <- p$h2 * eq["I2"]
+  c(w1 = unname(flux1 / (flux1 + flux2)), w2 = unname(flux2 / (flux1 + flux2)))
+}
+
+harmonic_gap <- function(alpha, p) {
+  w <- harmonic_weights(alpha, p)
+  lhs <- dbeta_fun(alpha, p$b0, p$q) / beta_fun(alpha, p$b0, p$q)
+  rhs <- w["w1"] / (p$d1 + alpha) + w["w2"] / (p$d2 + alpha)
+  unname(lhs - rhs)
+}
+
+find_ESS_harmonic <- function(p, alpha_range = c(1e-3, 5), n = 300) {
+  grid_root(function(a) harmonic_gap(a, p), alpha_range[1], alpha_range[2], n)
+}
+
+sweep_shed_asymdz$alpha_harmonic <- sapply(seq_len(nrow(sweep_shed_asymdz)), function(i) {
+  row <- sweep_shed_asymdz[i, ]
+  pp <- p_multi_asym; pp$h1 <- row$h1; pp$h2 <- row$h2; pp$h <- NULL
+  find_ESS_harmonic(pp)
+})
+
+harmonic_compare <- rbind(
+  data.frame(ratio = sweep_shed_asymdz$ratio, alpha = sweep_shed_asymdz$alpha_star,    series = "actual ESS"),
+  data.frame(ratio = sweep_shed_asymdz$ratio, alpha = sweep_shed_asymdz$naive_weighted, series = "naive ESS (h-weighted average)"),
+  data.frame(ratio = sweep_shed_asymdz$ratio, alpha = sweep_shed_asymdz$alpha_harmonic,  series = "harmonic-mean ESS")
+)
+print(
+  ggplot(harmonic_compare, aes(ratio, alpha, color = series, linetype = series)) +
+    geom_point(size = 2) + geom_line() +
+    scale_x_log10() +
+    labs(title = "Harmonic-mean ESS vs. actual ESS vs. naive ESS",
+         subtitle = "d1 != d2 -- harmonic-mean prediction overlays the actual ESS; naive h-weighted average doesn't",
+         x = expression(h[1]/h[2]~"(log scale)"), y = expression(alpha^"*"), color = NULL, linetype = NULL) +
+    theme_minimal()
+)
+
 ## ---- CSS check + PIP at a representative strongly-asymmetric-shedding point
 p_shed_rep <- p_multi_asym; p_shed_rep$h1 <- h_total * 9/10; p_shed_rep$h2 <- h_total * 1/10; p_shed_rep$h <- NULL
 ess_shed_rep <- find_ESS_multihost_shed(p_shed_rep)
