@@ -795,7 +795,7 @@ print(
 #   lean toward host 1's single-host optimum, qd1/(1-q) -- but only when
 #   d1 != d2 (if d1 = d2 the two hosts' single-host optima are identical, so
 #   there is nothing for shedding asymmetry to skew toward,
-#   mirroring the Part 3 result that the shared ESS is invariant when the
+#   equalling the Part 3 result that the shared ESS is invariant when the
 #   hosts are otherwise ecologically identical). Whether the shift is a
 #   simple h-weighted average of the two single-host optima (linear) or
 #   differs from that (interacts with the d1 != d2 asymmetry) is checked
@@ -911,14 +911,18 @@ print(
 
 ## ---- does the spillover discount f change this curve? (Javad's question) ----
 ## f only enters through host 1's share of the shedding flux (w1 ~ h1*f*S1*/(d1+alpha)),
-## so a lower f should pull alpha* toward host 2's optimum. But a lower f also leaves more
+## so a lower f should pull alpha* toward host 2's optimum. But, a lower f also leaves more
 ## susceptibles alive in host 1 (S1* rises), which cancels most of that whenever transmission
 ## is strong enough that nearly every recruit gets infected (true of the default parameters).
 ## This is shown at the default environmental decay g and at a much larger g (weaker transmission),
-## where the cancellation is only partial. The ESS search is restricted to the band between
+## where the cancellation is only partial. The ESS search is restricted to the range between
 ## the two single-host optima (0.1 - 0.3), which always contains the shared ESS 
-## (outside that band every term of the harmonic condition has the same sign).
-f_vals       <- c(0.25, 0.5, 1)
+## (outside that, every term of the harmonic condition has the same sign).
+## At extreme values like f = 0.01 or f = 0.1, extinction events can occur.
+## Host 1 is so rarely infected that the cancellation above fails even under strong
+## transmission, and under weak transmission the pathogen can go extinct altogether when
+## host 1 does most of the shedding; those points have no ESS and are reported as N/A.
+f_vals       <- c(0.01, 0.1, 0.25, 0.5, 1)
 g_regimes    <- c("strong transmission (g = 0.5)" = 0.5, "weak transmission (g = 10)" = 10)
 ratio_sub    <- ratio_seq[seq(1, length(ratio_seq), by = 2)]
 ess_band     <- c(0.8 * alpha1_opt_asym, 1.2 * alpha2_opt_asym)
@@ -941,7 +945,41 @@ f_effect <- do.call(rbind, lapply(split(sweep_f_shed, sweep_f_shed$regime), func
 cat(sprintf("Effect of f on the shedding-asymmetry curve: max |alpha*(f=%.2f) - alpha*(f=%.2f)| over the sweep\n",
             min(f_vals), max(f_vals)))
 print(f_effect, row.names = FALSE, digits = 3)
+no_ess <- sweep_f_shed[is.na(sweep_f_shed$alpha_star), c("regime", "f", "ratio")]
+if (nrow(no_ess) > 0) {
+  cat("No ESS (pathogen cannot persist: no endemic equilibrium) at:\n")
+  print(no_ess, row.names = FALSE, digits = 3)
+}
 cat("With symmetric mortality (d1 = d2) f has no effect at all: alpha* stays at q*d/(1-q), as in Part 3.\n\n")
+
+## ---- why does host 1 supply more pathogen, even at f = 1? (Javad's question) ----
+## Each new recruit races between infection (rate f*beta*E*) and natural death (rate d_i),
+## so the share of recruits that ever get infected is f*beta*E* / (f*beta*E* + d_i).
+## Once infected, a host stays infected for 1/(d_i + alpha) on average, so
+##       I_i* = Lambda_i * (share infected) / (d_i + alpha)
+## The longer-lived host 1 wins on BOTH counts (more recruits infected, and each
+## infection lasts longer), so it supplies more pathogen even with equal susceptibility.
+## Lowering f erodes only the first advantage; weak transmission (large g) makes that
+## erosion bite at higher f. Shown at equal shedding (h1 = h2), so only f, g and d differ.
+host_share <- do.call(rbind, lapply(names(g_regimes), function(regime) {
+  do.call(rbind, lapply(f_vals, function(fv) {
+    pp <- p_multi_asym; pp$f <- fv; pp$g <- g_regimes[[regime]]
+    pp$h1 <- h_total / 2; pp$h2 <- h_total / 2; pp$h <- NULL
+    a <- find_ESS_multihost_shed(pp, alpha_range = ess_band, n = 40)
+    if (is.na(a)) return(data.frame(regime = regime, f = fv, alpha_star = NA, pct_host1_infected = NA,
+                                    pct_host2_infected = NA, host1_share_of_shedding = NA))
+    eq <- multihost_shed_equilibrium(a, pp); foi <- beta_fun(a, pp$b0, pp$q) * eq["E"]
+    data.frame(regime = regime, f = fv, alpha_star = a,
+               pct_host1_infected = 100 * pp$f * foi / (pp$f * foi + pp$d1),
+               pct_host2_infected = 100 * foi / (foi + pp$d2),
+               host1_share_of_shedding = eq["I1"] / (eq["I1"] + eq["I2"]))
+  }))
+}))
+cat("Who supplies the pathogen? (h1 = h2; d1 = 0.10, d2 = 0.30)\n")
+print(host_share, row.names = FALSE, digits = 3)
+cat("Host 1 supplies most of the pathogen unless f is low enough to cancel its longer lifespan:\n")
+cat("its share drops below 0.5 only at f = 0.01 under strong transmission, but already at\n")
+cat("f = 0.1 under weak transmission.\n\n")
 
 print(
   ggplot(sweep_f_shed, aes(ratio, alpha_star, color = factor(f))) +
@@ -955,7 +993,8 @@ print(
     scale_y_continuous(expand = expansion(mult = 0.12)) +
     facet_wrap(~ regime) +
     labs(title = "Effect of the spillover discount f on the shedding-asymmetry curve",
-         subtitle = "d1 != d2. Dashed lines = virulence that would evolve in each host alone. f barely matters when transmission is strong.",
+         subtitle = paste0("d1 != d2. Dashed lines = virulence that would evolve in each host alone. f barely matters under strong\n",
+                           "transmission unless it is extreme (f = 0.01); missing points = pathogen cannot persist."),
          x = lab_shed_ratio, y = lab_ess, color = "spillover discount f\n(1 = no discount)") +
     theme_minimal() +
     theme(panel.spacing = unit(1.5, "lines"))
@@ -994,10 +1033,11 @@ print(
     guides(color = guide_legend(ncol = 1), linetype = guide_legend(ncol = 1))
 )
 
-## ---- So what is the right average? I wanted to check to confirm that it is indeed the harmonic mean --
+## ---- So what is the right average? I wanted to check to confirm that it is 
+## indeed the harmonic mean --
 ## For the single-host model, the ESS condition collapses to
 ## beta'(alpha*)/beta(alpha*) = 1/(d+gamma+alpha*). The question for the shared
-## multi-host ESS: does it obey the same kind of condition, but with the
+## multi-host ESS is if it obeys the same type of condition, but with the
 ## removal rate replaced by a weighted harmonic mean of (d1+alpha*) and
 ## (d2+alpha*)?
 ##     beta'(alpha*)/beta(alpha*) = w1/(d1+alpha*) + w2/(d2+alpha*),  w1+w2=1
@@ -1005,7 +1045,7 @@ print(
 ## eigenvectors of the resident (I1,I2,E) growth matrix at the ESS) shows it
 ## holds once w_i is each host's share of total shedding flux into the
 ## environment, h_i*I_i*, not shedding rate h_i alone. This is the
-## correct average, unlike the naive h-weighted one just above.
+## correct average, not the naive h-weighted one investigated above.
 ##
 ## Why call it "harmonic" (Javad's question): the averaging is across hosts, of
 ## each host's total removal rate r_i = d_i + alpha*. It is not a harmonic
@@ -1017,7 +1057,7 @@ print(
 ## a small rise in alpha shortens host i's infectious period by the fraction
 ## 1/r_i, and the pathogen weighs that loss by where its shedding comes from.
 ## For beta = b0*alpha^q the left side is q/alpha*, so the harmonic mean of
-## (d_i + alpha*) must equal alpha*/q. Tested against the alternatives below.
+## (d_i + alpha*) must equal alpha*/q. We test against the alternatives below.
 harmonic_weights <- function(alpha, p) {
   eq <- multihost_shed_equilibrium(alpha, p)
   flux1 <- p$h1 * eq["I1"]; flux2 <- p$h2 * eq["I2"]
@@ -1153,7 +1193,7 @@ css_summary <- rbind(
                                                          "convergence_stable", "evolutionarily_stable")])
 )
 print(css_summary, row.names = FALSE)
-cat("All three: gradient is positive below the ESS and negative above it\n")
+cat("All three gradients are positive below the ESS and negative above it\n")
 cat("(convergence stable; residents evolve toward it from either side), and\n")
 cat("curvature is negative (a true local fitness maximum, i.e. uninvadable\n")
 cat("once reached). All three are legit CSS points of the same stability\n")
